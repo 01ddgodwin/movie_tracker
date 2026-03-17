@@ -1,0 +1,10 @@
+flutter_native_splash:
+  # This sets the background to your cinematic red
+  color: "#E50914"
+  # This puts your popcorn icon right in the center
+  image: "assets/icon.png"
+  
+  # Android 12+ handles splash screens a bit differently, so we specifically tell it to match here:
+  android_12:
+    color: "#E50914"
+    image: "assets/icon.png"

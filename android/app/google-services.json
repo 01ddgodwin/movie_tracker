@@ -1,0 +1,90 @@
+{
+  "project_info": {
+    "project_number": "1064087031521",
+    "project_id": "movie-calendar-9137f",
+    "storage_bucket": "movie-calendar-9137f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1064087031521:android:b0a1f74e0cccb56b8031a0",
+        "android_client_info": {
+          "package_name": "com.example.movie_tracker"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1064087031521-vgcus0n936qkn5m4srsalt84quhl5mmt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCx3mksYhlTF4qVnZ5augdHUJLFATvtcB0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1064087031521-vgcus0n936qkn5m4srsalt84quhl5mmt.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1064087031521-oha5bl0ou3118a9bvr4h9iggo8i4o27q.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.myMovieCalendar"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1064087031521:android:079f0de207ff57a48031a0",
+        "android_client_info": {
+          "package_name": "com.example.my_movie_calendar"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1064087031521-3a3g4cp76aocm0d4gk776dv2vgifhvev.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.my_movie_calendar",
+            "certificate_hash": "0b4213187e94c7d38df54e40128274b947895139"
+          }
+        },
+        {
+          "client_id": "1064087031521-vgcus0n936qkn5m4srsalt84quhl5mmt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCx3mksYhlTF4qVnZ5augdHUJLFATvtcB0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1064087031521-vgcus0n936qkn5m4srsalt84quhl5mmt.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1064087031521-oha5bl0ou3118a9bvr4h9iggo8i4o27q.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.myMovieCalendar"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,8 @@
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  min_sdk_android: 21
+  # --- ADAPTIVE ICON SETTINGS ---
+  adaptive_icon_background: "#121212" # This makes the circle background match your app's dark theme!
+  adaptive_icon_foreground: "assets/icon.png" # This puts your popcorn on top of the circle
