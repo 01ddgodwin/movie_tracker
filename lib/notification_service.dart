@@ -6,48 +6,51 @@ import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // --- BACKGROUND WORKER ---
-// This MUST remain a top-level function so the Android background service can find it.
+// This MUST remain a top-level function. It runs in a separate "Isolate" (memory bubble).
 @pragma('vm:entry-point')
 void updateLiveActivityBackground(int alarmId) async {
   WidgetsFlutterBinding.ensureInitialized();
-
+  
   try {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
+    await prefs.reload(); // Sync with disk
+    
     final dataStr = prefs.getString('alarm_$alarmId');
+    print("MOVIE_DEBUG: Alarm fired for $alarmId"); 
 
     if (dataStr != null) {
       final data = jsonDecode(dataStr);
-
       final startTime = DateTime.parse(data['startTimeIso']);
       final runtime = data['runtimeMinutes'] as int;
       final now = DateTime.now();
-
-      // Calculate the fresh countdown time right as the background task runs
+      
       final int minsUntil = startTime.difference(now).inMinutes;
-      String timeStatus;
-      if (minsUntil > 0) {
-        timeStatus = "In $minsUntil min";
-      } else if (minsUntil > -runtime) {
-        timeStatus = "Playing Now";
-      } else {
-        timeStatus = "Finished";
-      }
-
-      final displayTitle = "${data['baseTitle']} ($timeStatus)";
-
-      // Boot up the native plugin in the background
+      String timeStatus = minsUntil > 0 ? "-${minsUntil}m" : (minsUntil > -runtime ? "Live" : "Finished");
+      
+      // Clean title, combined body
+      final displayTitle = data['baseTitle']; 
+      final displayBody = "$timeStatus • ${data['body']}";
+      
       final plugin = LiveActivities();
-      await plugin.init(appGroupId: "YOUR_GROUP_ID");
-
-      await plugin.createOrUpdateActivity(data['activityId'], {
-        'title': displayTitle,
-        'body': data['body'],
-        'progress': data['progress'],
-      });
+      
+      try {
+        await plugin.init(appGroupId: ""); 
+      } catch (e) {
+        print("MOVIE_DEBUG: Plugin init permission warning (ignoring): $e");
+      }
+      
+      await plugin.createOrUpdateActivity(
+        data['activityId'], 
+        {
+          'title': displayTitle,
+          'body': displayBody,
+          'progress': data['progress'],
+        }
+      );
+      print("MOVIE_DEBUG: Background update success!"); 
     }
   } catch (e) {
-    debugPrint("Background Alarm Error: $e");
+    print("MOVIE_DEBUG: Background Isolate Error: $e"); 
   }
 }
 
@@ -59,7 +62,7 @@ class NotificationService {
   final _liveActivitiesPlugin = LiveActivities();
 
   Future<void> init() async {
-    await _liveActivitiesPlugin.init(appGroupId: "YOUR_GROUP_ID");
+    await _liveActivitiesPlugin.init(appGroupId: "");
   }
 
   Future<void> scheduleMovieFlow(
@@ -76,18 +79,15 @@ class NotificationService {
       final String baseTitle = item['title'] ?? "Movie";
       final String activityId = item['id'].toString();
 
-      // 1. Calculate time remaining for the immediate layout
       final int minsUntil = movieStartTime.difference(now).inMinutes;
-      String timeStatus;
-      if (minsUntil > 0) {
-        timeStatus = "In $minsUntil min";
-      } else if (minsUntil > -runtimeMinutes) {
-        timeStatus = "Playing Now";
-      } else {
-        timeStatus = "Finished";
-      }
-      final String displayTitle = "$baseTitle ($timeStatus)";
+      String timeStatus = minsUntil > 0
+          ? "-${minsUntil}m"
+          : (minsUntil > -runtimeMinutes ? "Live" : "Finished");
+      
+      // Keep title strictly to the movie name
+      final String displayTitle = baseTitle;
 
+      // Ultra-Concise Phases
       final List<Map<String, dynamic>> phases = [
         {
           'time': movieStartTime.subtract(const Duration(minutes: 60)),
@@ -96,12 +96,12 @@ class NotificationService {
         },
         {
           'time': movieStartTime.subtract(const Duration(minutes: 15)),
-          'body': "Grab the popcorn & soda! 🍿🥤",
+          'body': "Grab popcorn! 🍿",
           'progress': 40.0,
         },
         {
           'time': movieStartTime.subtract(const Duration(minutes: 5)),
-          'body': "Dimming lights... find your seat! 🛋️",
+          'body': "Find your seat! 🛋️",
           'progress': 60.0,
         },
         {
@@ -111,7 +111,7 @@ class NotificationService {
         },
         {
           'time': movieStartTime.add(Duration(minutes: runtimeMinutes)),
-          'body': "Credits rolling. Don't forget your trash! 🚮",
+          'body': "Credits rolling! 🚮",
           'progress': 100.0,
         },
       ];
@@ -124,10 +124,8 @@ class NotificationService {
         final DateTime phaseTime = phase['time'] as DateTime;
 
         if (now.isAfter(phaseTime)) {
-          // Keep updating the current active phase as we loop through the past ones
           currentActivePhase = phase;
         } else {
-          // --- SCHEDULE BACKGROUND ALARM FOR FUTURE PHASES ---
           final int alarmId = (item['id'].hashCode + phaseIndex).abs() % 100000;
 
           final alarmData = {
@@ -153,16 +151,18 @@ class NotificationService {
         phaseIndex++;
       }
 
-      // --- ONLY PAINT IF WITHIN 1 HOUR OF SHOWTIME ---
+      // --- PAINT THE IMMEDIATE LAYOUT ---
       if (currentActivePhase != null) {
+        // Combine the time status and the phase body for the immediate layout
+        final String displayBody = "$timeStatus • ${currentActivePhase['body']}";
+        
         await updateLiveActivity(
           activityId,
           displayTitle,
-          currentActivePhase['body'] as String,
+          displayBody, 
           currentActivePhase['progress'] as double,
         );
       } else {
-        // Automatically clears the lock screen widget if it isn't time yet
         await _liveActivitiesPlugin.endActivity(activityId);
       }
     } catch (e) {

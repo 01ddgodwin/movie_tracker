@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:math';
+import 'package:firebase_messaging/firebase_messaging.dart'; // <-- NEW IMPORT
 
 class FirebaseService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -175,6 +176,42 @@ class FirebaseService {
 
   Future<void> signOut() async {
     await _auth.signOut();
+  }
+
+  // --- PUSH NOTIFICATIONS ---
+  Future<void> setupPushNotifications() async {
+    if (currentUser == null) return;
+
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+
+    // Request permission from the OS
+    NotificationSettings settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized ||
+        settings.authorizationStatus == AuthorizationStatus.provisional) {
+      // Get the unique device token
+      String? token = await messaging.getToken();
+
+      if (token != null) {
+        // Save the token to your user document so the cloud knows where to send alerts
+        await _db.collection('users').doc(currentUser!.uid).set({
+          'pushToken': token,
+        }, SetOptions(merge: true));
+
+        debugPrint("MOVIE_DEBUG: Push token saved successfully! ($token)");
+      }
+
+      // If the OS rotates the token, update it automatically
+      messaging.onTokenRefresh.listen((newToken) {
+        _db.collection('users').doc(currentUser!.uid).set({
+          'pushToken': newToken,
+        }, SetOptions(merge: true));
+      });
+    }
   }
 
   // --- CLOUD SYNC LOGIC ---

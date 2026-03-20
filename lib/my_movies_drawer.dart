@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -201,7 +202,6 @@ class _MyMoviesDrawerState extends State<MyMoviesDrawer> {
               List<dynamic>.from(cloudData['tickets']),
             );
           }
-
           if (cloudData['plans'] != null)
             tempPlans.addAll(List<dynamic>.from(cloudData['plans']));
           if (cloudData['sharedPlans'] != null)
@@ -226,37 +226,40 @@ class _MyMoviesDrawerState extends State<MyMoviesDrawer> {
       final diaryData = await _storageService.getDiary();
       final ticketData = await _storageService.getTickets();
 
-      // --- NOTIFICATION SCHEDULING ---
-      final notifService = NotificationService();
-      await notifService.init();
+      // --- BULLETPROOF WEB GUARD ---
+      if (!kIsWeb) {
+        final notifService = NotificationService();
+        await notifService.init();
 
-      // 1. Schedule notifications for upcoming plans
-      final upcomingPlans = tempPlans
-          .where((p) => !_isPast(p['date'], p['time']))
-          .toList();
-      for (var plan in upcomingPlans) {
-        try {
-          await notifService.scheduleMovieFlow(plan, 120);
-        } catch (e) {
-          debugPrint("Plan Notification Error: $e");
+        // 1. Schedule notifications for upcoming plans
+        final upcomingPlans = tempPlans
+            .where((p) => !_isPast(p['date'], p['time']))
+            .toList();
+        for (var plan in upcomingPlans) {
+          try {
+            await notifService.scheduleMovieFlow(plan, 120);
+          } catch (e) {
+            debugPrint("Plan Notification Error: $e");
+          }
+        }
+
+        // 2. Schedule for Standalone Tickets
+        final upcomingStandaloneTickets = ticketData
+            .where(
+              (t) =>
+                  !_isPast(t['date'], t['time']) &&
+                  (t['planId'] == null || t['planId'] == 'null'),
+            )
+            .toList();
+        for (var ticket in upcomingStandaloneTickets) {
+          try {
+            await notifService.scheduleMovieFlow(ticket, 120);
+          } catch (e) {
+            debugPrint("Ticket Notification Error: $e");
+          }
         }
       }
-
-      // 2. Schedule for Standalone Tickets (not already attached to a plan)
-      final upcomingStandaloneTickets = ticketData
-          .where(
-            (t) =>
-                !_isPast(t['date'], t['time']) &&
-                (t['planId'] == null || t['planId'] == 'null'),
-          )
-          .toList();
-      for (var ticket in upcomingStandaloneTickets) {
-        try {
-          await notifService.scheduleMovieFlow(ticket, 120);
-        } catch (e) {
-          debugPrint("Ticket Notification Error: $e");
-        }
-      }
+      // -------------------------------
 
       diaryData.sort((a, b) {
         final dateA =

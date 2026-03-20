@@ -2,6 +2,8 @@ package com.example.movie_tracker
 
 import android.app.Application
 import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -9,11 +11,10 @@ import android.graphics.Color
 import android.widget.RemoteViews
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
 import com.example.live_activities.LiveActivityManager
 import com.example.live_activities.LiveActivityManagerHolder
 
-// This class stays alive in the background to handle the "headless" alarms
+// This class keeps the background engine alive independently of the UI
 class MainApplication : Application() {
     override fun onCreate() {
         super.onCreate()
@@ -33,6 +34,22 @@ class CustomLiveActivityManager(context: Context) : LiveActivityManager(context)
     ): Notification {
         Log.d("MOVIE_NATIVE", "=== KOTLIN TRIGGERED ===")
         
+        // 1. Setup High-Importance Channel for Always-On Display (AOD)
+        val channelId = "live_activity_channel"
+        val notificationManager = mContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, 
+                "Movie Live Tracking", 
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Shows real-time movie progress on lock screen"
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
         val title = data["title"] as? String ?: "Movie"
         val body = data["body"] as? String ?: ""
         val progress = (data["progress"] as? Number)?.toDouble() ?: 0.0
@@ -46,51 +63,54 @@ class CustomLiveActivityManager(context: Context) : LiveActivityManager(context)
                 remoteViews.setInt(seg, "setBackgroundColor", Color.parseColor("#333333"))
             }
 
-            val activeCount = (progress / 20).toInt()
+            // 2. Safe progress handling to prevent UI overflows
+            val safeProgress = progress.coerceIn(0.0, 100.0)
+            val activeCount = (safeProgress / 20).toInt()
             for (i in 0 until activeCount) {
-                remoteViews.setInt(segments[i], "setBackgroundColor", Color.parseColor("#E50914"))
+                if (i < segments.size) {
+                    remoteViews.setInt(segments[i], "setBackgroundColor", Color.parseColor("#E50914"))
+                }
             }
         } catch (e: Exception) {
             Log.e("MOVIE_NATIVE", "XML PAINT CRASH: ${e.message}")
         }
 
-        // CRITICAL FIX: Application context requires NEW_TASK to open the activity from background
         val intent = Intent(mContext, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
-        
         val pendingIntent = PendingIntent.getActivity(
-            mContext, 
-            200, 
-            intent, 
+            mContext, 200, intent, 
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Setup the "X" button to dismiss the notification
+        // Close button logic
         val dismissIntent = Intent(mContext, LiveActivityManager::class.java).apply {
             action = "END_ACTIVITY" 
         }
         val dismissPendingIntent = PendingIntent.getBroadcast(
-            mContext,
-            300,
-            dismissIntent,
+            mContext, 300, dismissIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         remoteViews.setOnClickPendingIntent(R.id.btn_close, dismissPendingIntent)
 
-        return notification
+        // 3. Final build with Category Progress for high-priority background delivery
+        val finalNotification = notification
+            .setChannelId(channelId)
             .setStyle(Notification.DecoratedCustomViewStyle())
             .setCustomContentView(remoteViews)
-            .setCustomBigContentView(remoteViews)
             .setContentIntent(pendingIntent)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.notification_icon)
             .setOngoing(true)
+            .setPriority(Notification.PRIORITY_MAX) 
             .setCategory(Notification.CATEGORY_PROGRESS)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .build()
+
+        Log.d("MOVIE_NATIVE", "=== HANDING OFF TO ANDROID OS ===")
+        return finalNotification
     }
 }
 
 class MainActivity: FlutterActivity() {
-    // Initialization is now handled by MainApplication
+    // Background management is handled by MainApplication
 }

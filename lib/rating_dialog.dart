@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // <-- NEW IMPORT
 import 'storage_service.dart';
 import 'firebase_service.dart';
+import 'social_service.dart';
 
 class RatingDialog extends StatefulWidget {
   final Map<String, dynamic> movieData;
@@ -23,7 +25,7 @@ class _RatingDialogState extends State<RatingDialog> {
   DateTime _watchedDate = DateTime.now();
   bool _isSaving = false;
   bool _isEditing = false;
-  String? _existingPhoto; 
+  String? _existingPhoto;
 
   @override
   void initState() {
@@ -33,7 +35,9 @@ class _RatingDialogState extends State<RatingDialog> {
 
   Future<void> _loadExistingData() async {
     final diary = await _storageService.getDiary();
-    final existingEntry = diary.where((m) => m['id'].toString() == widget.movieData['id'].toString()).toList();
+    final existingEntry = diary
+        .where((m) => m['id'].toString() == widget.movieData['id'].toString())
+        .toList();
 
     if (existingEntry.isNotEmpty) {
       final data = existingEntry.first;
@@ -55,10 +59,13 @@ class _RatingDialogState extends State<RatingDialog> {
       context: context,
       initialDate: _watchedDate,
       firstDate: DateTime(1900),
-      lastDate: DateTime.now(), 
+      lastDate: DateTime.now(),
       builder: (context, child) => Theme(
         data: ThemeData.dark().copyWith(
-          colorScheme: const ColorScheme.dark(primary: Color(0xFFE50914), surface: Color(0xFF1A1A1A)),
+          colorScheme: const ColorScheme.dark(
+            primary: Color(0xFFE50914),
+            surface: Color(0xFF1A1A1A),
+          ),
         ),
         child: child!,
       ),
@@ -70,15 +77,14 @@ class _RatingDialogState extends State<RatingDialog> {
     }
   }
 
-  // --- NEW: Handle picking and compressing the memory photo ---
   Future<void> _pickImage() async {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 600, // Compresses the image size down
-        imageQuality: 50, // Ensures it fits perfectly in Firestore limits!
+        maxWidth: 600, 
+        imageQuality: 50, 
       );
-      
+
       if (image != null) {
         final bytes = await image.readAsBytes();
         final base64Image = base64Encode(bytes);
@@ -99,7 +105,12 @@ class _RatingDialogState extends State<RatingDialog> {
 
   Future<void> _saveRating() async {
     if (_rating == 0.0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a rating!'), backgroundColor: Colors.redAccent));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a rating!'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
       return;
     }
 
@@ -109,32 +120,50 @@ class _RatingDialogState extends State<RatingDialog> {
       final diaryEntry = {
         'id': widget.movieData['id'].toString(),
         'title': widget.movieData['title'],
-        'posterPath': widget.movieData['poster_path'] ?? widget.movieData['posterPath'],
+        'posterPath':
+            widget.movieData['poster_path'] ?? widget.movieData['posterPath'],
         'rating': _rating,
         'watchedDate': _watchedDate.toIso8601String(),
-        'userPhoto': _existingPhoto ?? '', 
+        'userPhoto': _existingPhoto ?? '',
         'timestamp': DateTime.now().toIso8601String(),
       };
 
       await _storageService.addToDiary(diaryEntry);
-      
+
       if (_firebaseService.currentUser != null) {
         final w = await _storageService.getWatchlist();
         final d = await _storageService.getDiary();
         final t = await _storageService.getTickets();
         await _firebaseService.syncToCloud(watchlist: w, diary: d, tickets: t);
+
+        // --- UPDATED: DIRECT BROADCAST TO SOCIAL FEED ---
+        if (!_isEditing) {
+          await FirebaseFirestore.instance.collection('social_feed').add({
+            'userId': _firebaseService.currentUser?.uid,
+            'userName': _firebaseService.currentUser?.displayName ?? 'Movie Fan',
+            'userAvatar': _firebaseService.currentUser?.photoURL ?? '', // ADDED AVATAR
+            'movieTitle': widget.movieData['title'] ?? 'Unknown Movie',
+            'rating': _rating,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+        }
+        // -------------------------------------
       }
 
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       setState(() => _isSaving = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error saving to diary.'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error saving to diary.'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
 
-  // --- NEW: Helper to build the photo thumbnail UI ---
   Widget _buildMemoryPhotoThumbnail() {
     if (_existingPhoto == null || _existingPhoto!.isEmpty) {
       return InkWell(
@@ -152,7 +181,14 @@ class _RatingDialogState extends State<RatingDialog> {
             children: [
               Icon(Icons.add_a_photo, color: Colors.grey, size: 18),
               SizedBox(width: 8),
-              Text('Attach Memory Photo', style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
+              Text(
+                'Attach Memory Photo',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
         ),
@@ -191,7 +227,10 @@ class _RatingDialogState extends State<RatingDialog> {
               onTap: _removePhoto,
               child: Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: Colors.redAccent.withValues(alpha: 0.9), shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.9),
+                  shape: BoxShape.circle,
+                ),
                 child: const Icon(Icons.delete, color: Colors.white, size: 16),
               ),
             ),
@@ -203,8 +242,11 @@ class _RatingDialogState extends State<RatingDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final posterPath = widget.movieData['poster_path'] ?? widget.movieData['posterPath'];
-    final imageUrl = posterPath != null ? 'https://image.tmdb.org/t/p/w200$posterPath' : '';
+    final posterPath =
+        widget.movieData['poster_path'] ?? widget.movieData['posterPath'];
+    final imageUrl = posterPath != null
+        ? 'https://image.tmdb.org/t/p/w200$posterPath'
+        : '';
     final title = widget.movieData['title'] ?? 'Unknown Movie';
 
     return Dialog(
@@ -222,8 +264,17 @@ class _RatingDialogState extends State<RatingDialog> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: imageUrl.isNotEmpty
-                        ? Image.network(imageUrl, width: 70, height: 105, fit: BoxFit.cover)
-                        : Container(width: 70, height: 105, color: Colors.grey[800]),
+                        ? Image.network(
+                            imageUrl,
+                            width: 70,
+                            height: 105,
+                            fit: BoxFit.cover,
+                          )
+                        : Container(
+                            width: 70,
+                            height: 105,
+                            color: Colors.grey[800],
+                          ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -232,10 +283,22 @@ class _RatingDialogState extends State<RatingDialog> {
                       children: [
                         Text(
                           _isEditing ? 'Edit Diary Entry' : 'Log Movie',
-                          style: const TextStyle(color: Color(0xFFE50914), fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1),
+                          style: const TextStyle(
+                            color: Color(0xFFE50914),
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1,
+                          ),
                         ),
                         const SizedBox(height: 4),
-                        Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -244,12 +307,20 @@ class _RatingDialogState extends State<RatingDialog> {
                     icon: const Icon(Icons.close, color: Colors.grey),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
-                  )
+                  ),
                 ],
               ),
               const SizedBox(height: 24),
-              
-              const Text('TAP TO RATE', style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+
+              const Text(
+                'TAP TO RATE',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.5,
+                ),
+              ),
               const SizedBox(height: 8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -260,22 +331,27 @@ class _RatingDialogState extends State<RatingDialog> {
                       padding: const EdgeInsets.symmetric(horizontal: 4.0),
                       child: Icon(
                         index < _rating ? Icons.star : Icons.star_border,
-                        color: index < _rating ? const Color(0xFFF5C518) : Colors.grey[600],
+                        color: index < _rating
+                            ? const Color(0xFFF5C518)
+                            : Colors.grey[600],
                         size: 40,
                       ),
                     ),
                   );
                 }),
               ),
-              
+
               const SizedBox(height: 24),
-              
+
               // --- EDITABLE DATE ROW ---
               InkWell(
                 onTap: _selectDate,
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF2B2B2B),
                     borderRadius: BorderRadius.circular(8),
@@ -283,15 +359,30 @@ class _RatingDialogState extends State<RatingDialog> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.calendar_today, color: Colors.grey, size: 20),
+                      const Icon(
+                        Icons.calendar_today,
+                        color: Colors.grey,
+                        size: 20,
+                      ),
                       const SizedBox(width: 12),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Date Watched', style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
+                          const Text(
+                            'Date Watched',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                           Text(
                             DateFormat('MMMM d, yyyy').format(_watchedDate),
-                            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
@@ -301,14 +392,14 @@ class _RatingDialogState extends State<RatingDialog> {
                   ),
                 ),
               ),
-              
+
               const SizedBox(height: 16),
-          
+
               // --- RESTORED MEMORY PHOTO UI ---
               _buildMemoryPhotoThumbnail(),
-          
+
               const SizedBox(height: 24),
-              
+
               // --- SAVE BUTTON ---
               SizedBox(
                 width: double.infinity,
@@ -316,12 +407,28 @@ class _RatingDialogState extends State<RatingDialog> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFE50914),
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   onPressed: _isSaving ? null : _saveRating,
                   child: _isSaving
-                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(_isEditing ? 'Update Entry' : 'Save to Diary', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Text(
+                          _isEditing ? 'Update Entry' : 'Save to Diary',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                 ),
               ),
             ],

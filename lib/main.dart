@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/intl.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'tmdb_service.dart';
 import 'movie_details_dialog.dart';
@@ -12,25 +15,33 @@ import 'firebase_options.dart';
 import 'firebase_service.dart';
 import 'auth_dialog.dart';
 import 'notification_service.dart';
-import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
-import 'package:permission_handler/permission_handler.dart'; // <-- 1. ADD THIS IMPORT
+import 'social_feed_screen.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // If you're going to use other Firebase services in the background, such as Firestore,
+  // make sure you call `initializeApp` before using other Firebase services.
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  debugPrint("Handling a background message: ${message.messageId}");
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  await NotificationService().init();
+  // --- FIX: Only run mobile-specific plugins if NOT on the web ---
+  if (!kIsWeb) {
+    // Initialize the Live Activities plugin
+    await NotificationService().init();
 
-  // --- 2. ADD THIS PERMISSION CHECK ---
-  // If the exact alarm permission is denied, this will automatically
-  // route you to the correct Android settings page to flip the switch.
-  if (await Permission.scheduleExactAlarm.isDenied) {
-    await Permission.scheduleExactAlarm.request();
+    // Start the background manager
+    await AndroidAlarmManager.initialize();
   }
-  // ------------------------------------
+  // ---------------------------------------------------------------
 
-  await AndroidAlarmManager.initialize();
+  // Register the background receiver
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(const MovieTrackerApp());
 }
@@ -47,15 +58,6 @@ class MovieTrackerApp extends StatelessWidget {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF121212),
         primaryColor: const Color(0xFFE50914),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFE50914),
-          secondary: Color(0xFF2B2B2B),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.black,
-          elevation: 0,
-          shape: Border(bottom: BorderSide(color: Color(0xFF333333), width: 1)),
-        ),
         fontFamily: 'Segoe UI',
       ),
       home: const MainScreen(),
@@ -89,6 +91,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    _checkPermissions(); // Check permissions here, in the UI thread!
     _checkInitialConnectivity();
 
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
@@ -104,6 +107,22 @@ class _MainScreenState extends State<MainScreen> {
     _loadMovies();
     _updateLocalData();
     _pullCloudDataToLocal();
+
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      debugPrint("Notification Tapped! Opening Social Feed...");
+      // Jump straight to the feed when tapped
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SocialFeedScreen()),
+      );
+    });
+  }
+
+  Future<void> _checkPermissions() async {
+    if (kIsWeb) return;
+    if (await Permission.scheduleExactAlarm.isDenied) {
+      await Permission.scheduleExactAlarm.request();
+    }
   }
 
   @override
@@ -378,6 +397,7 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _pullCloudDataToLocal() async {
     if (_firebaseService.currentUser == null || !_hasInternet) return;
+    await _firebaseService.setupPushNotifications();
     final cloudData = await _firebaseService.fetchUserData();
     if (cloudData != null) {
       if (cloudData['watchlist'] != null) {
@@ -664,6 +684,17 @@ class _MainScreenState extends State<MainScreen> {
           },
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.public, color: Colors.white),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SocialFeedScreen(),
+                ),
+              );
+            },
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
             child: Builder(
@@ -805,7 +836,9 @@ class _MainScreenState extends State<MainScreen> {
 
             TextField(
               controller: _searchController,
-              onChanged: _onSearchChanged,
+              onChanged: (value) {
+                setState(() {});
+              },
               decoration: InputDecoration(
                 hintText: 'Search for any movie...',
                 prefixIcon: const Icon(Icons.search, color: Colors.grey),
@@ -816,6 +849,20 @@ class _MainScreenState extends State<MainScreen> {
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide.none,
                 ),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, color: Colors.grey),
+                        onPressed: () {
+                          _searchController.clear();
+                          FocusScope.of(
+                            context,
+                          ).unfocus(); // Drops the keyboard
+
+                          // Just triggering a rebuild is enough to clear the screen
+                          setState(() {});
+                        },
+                      )
+                    : null,
               ),
             ),
             const SizedBox(height: 24),
@@ -904,6 +951,13 @@ class _MovieCardState extends State<MovieCard> {
     _checkIfAdded();
   }
 
+  @override
+  void didUpdateWidget(MovieCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If the parent screen refreshes (like when the drawer closes), re-check the status!
+    _checkIfAdded();
+  }
+
   Future<void> _checkIfAdded() async {
     final watchlist = await _storageService.getWatchlist();
     if (mounted) {
@@ -915,17 +969,35 @@ class _MovieCardState extends State<MovieCard> {
     }
   }
 
-  Future<void> _addToWatchlist() async {
-    await _storageService.addToWatchlist(widget.movieData);
-    if (mounted) {
-      setState(() => _isInWatchlist = true);
-      widget.onSyncNeeded();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Added to Watchlist!'),
-          backgroundColor: Color(0xFF34A853),
-        ),
+  Future<void> _toggleWatchlist() async {
+    if (_isInWatchlist) {
+      // --- REMOVE FROM WATCHLIST ---
+      await _storageService.removeFromWatchlist(
+        widget.movieData['id'].toString(),
       );
+      if (mounted) {
+        setState(() => _isInWatchlist = false);
+        widget.onSyncNeeded(); // Tells the main screen to update the count!
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Removed from Watchlist'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } else {
+      // --- ADD TO WATCHLIST ---
+      await _storageService.addToWatchlist(widget.movieData);
+      if (mounted) {
+        setState(() => _isInWatchlist = true);
+        widget.onSyncNeeded();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Added to Watchlist!'),
+            backgroundColor: Color(0xFF34A853),
+          ),
+        );
+      }
     }
   }
 
@@ -999,15 +1071,18 @@ class _MovieCardState extends State<MovieCard> {
           const SizedBox(height: 8),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE50914),
-              disabledBackgroundColor: const Color(0xFF555555),
+              // Dynamically change color based on state
+              backgroundColor: _isInWatchlist
+                  ? const Color(0xFF555555)
+                  : const Color(0xFFE50914),
               padding: EdgeInsets.zero,
               minimumSize: const Size(double.infinity, 32),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
-            onPressed: _isInWatchlist ? null : _addToWatchlist,
+            // Call our new toggle function!
+            onPressed: _toggleWatchlist,
             child: Text(
               _isInWatchlist ? 'Added' : '+Add',
               style: TextStyle(

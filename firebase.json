@@ -1,1 +1,37 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"movie-calendar-9137f","appId":"1:1064087031521:android:b0a1f74e0cccb56b8031a0","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"movie-calendar-9137f","configurations":{"android":"1:1064087031521:android:b0a1f74e0cccb56b8031a0","ios":"1:1064087031521:ios:0b88e4a627f6db088031a0","web":"1:1064087031521:web:c3d5bac65b0587138031a0"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "movie-calendar-9137f",
+          "appId": "1:1064087031521:android:b0a1f74e0cccb56b8031a0",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "movie-calendar-9137f",
+          "configurations": {
+            "android": "1:1064087031521:android:b0a1f74e0cccb56b8031a0",
+            "ios": "1:1064087031521:ios:0b88e4a627f6db088031a0",
+            "web": "1:1064087031521:web:c3d5bac65b0587138031a0"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "disallowLegacyRuntimeConfig": true,
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ]
+    }
+  ]
+}
